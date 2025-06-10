@@ -43,15 +43,17 @@ builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
     {
         policy
-            .WithOrigins(
-                "http://localhost:3000",
-                "https://localhost:3000",
-                "https://calm-sand-0920fd500.6.azurestaticapps.net"
+            .SetIsOriginAllowed(origin => 
+                origin == "http://localhost:3000" ||
+                origin == "https://localhost:3000" ||
+                origin == "https://calm-sand-0920fd500.6.azurestaticapps.net" ||
+                origin == "https://pranavwebapp1-ebcdg5gjbzfrbvh8.centralindia-01.azurewebsites.net"
             )
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials()
-            .WithExposedHeaders("Content-Disposition");
+            .WithExposedHeaders("Content-Disposition", "Content-Type", "Authorization")
+            .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
     });
 });
 
@@ -136,6 +138,21 @@ if (app.Environment.IsDevelopment())
 
 // Enable CORS before other middleware
 app.UseCors();
+
+// Add OPTIONS handling for preflight requests
+app.Use(async (context, next) =>
+{
+    if (context.Request.Method == "OPTIONS")
+    {
+        context.Response.Headers.Add("Access-Control-Allow-Origin", context.Request.Headers["Origin"]);
+        context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type,Authorization");
+        context.Response.Headers.Add("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+        context.Response.Headers.Add("Access-Control-Allow-Credentials", "true");
+        context.Response.StatusCode = 200;
+        return;
+    }
+    await next();
+});
 
 if (!app.Environment.IsDevelopment())
 {
