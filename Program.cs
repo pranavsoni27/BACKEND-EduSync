@@ -40,13 +40,14 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // CORS for frontend
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowFrontend", policy =>
+    options.AddPolicy("AllowAll", policy =>
     {
         policy
-            .WithOrigins("https://calm-sand-0920fd500.6.azurestaticapps.net")
+            .SetIsOriginAllowed(_ => true) // Allow any origin
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowCredentials();
+            .AllowCredentials()
+            .WithExposedHeaders("*");
     });
 });
 
@@ -125,24 +126,27 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// IMPORTANT: CORS must be before other middleware
-app.UseCors("AllowFrontend");
-
-// Add a middleware to handle OPTIONS requests
+// Add CORS middleware before other middleware
 app.Use(async (context, next) =>
 {
+    // Always set CORS headers
+    context.Response.Headers.Add("Access-Control-Allow-Origin", "https://calm-sand-0920fd500.6.azurestaticapps.net");
+    context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    context.Response.Headers.Add("Access-Control-Allow-Headers", "*");
+    context.Response.Headers.Add("Access-Control-Allow-Credentials", "true");
+    context.Response.Headers.Add("Access-Control-Max-Age", "86400");
+
+    // Handle preflight requests
     if (context.Request.Method == "OPTIONS")
     {
-        context.Response.Headers.Add("Access-Control-Allow-Origin", "https://calm-sand-0920fd500.6.azurestaticapps.net");
-        context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-        context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, Origin, User-Agent, DNT, Cache-Control, X-Mx-ReqToken, Keep-Alive, X-Requested-With, If-Modified-Since");
-        context.Response.Headers.Add("Access-Control-Allow-Credentials", "true");
-        context.Response.Headers.Add("Access-Control-Max-Age", "3600");
         context.Response.StatusCode = 200;
         return;
     }
+
     await next();
 });
+
+app.UseCors("AllowAll");
 
 if (!app.Environment.IsDevelopment())
 {
