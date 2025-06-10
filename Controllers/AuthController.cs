@@ -39,7 +39,8 @@ namespace EduSyncAPI.Controllers
                 using (var sha256 = SHA256.Create())
                 {
                     var hashedBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(password));
-                    return Convert.ToBase64String(hashedBytes);
+                    // Use a shorter hash format to fit within 256 characters
+                    return BitConverter.ToString(hashedBytes).Replace("-", "").ToLower();
                 }
             }
             catch (Exception ex)
@@ -47,6 +48,19 @@ namespace EduSyncAPI.Controllers
                 _logger.LogError(ex, "Error hashing password");
                 throw new Exception("Error processing password");
             }
+        }
+
+        private string GenerateNameFromEmail(string email)
+        {
+            var name = email.Contains("@") ? email.Split('@')[0] : email;
+            // Ensure name doesn't exceed 100 characters
+            return name.Length > 100 ? name.Substring(0, 97) + "..." : name;
+        }
+
+        private bool IsValidRole(string role)
+        {
+            var validRoles = new[] { "student", "instructor" };
+            return validRoles.Contains(role.ToLower());
         }
 
         private string GenerateJwtToken(User user)
@@ -106,6 +120,12 @@ namespace EduSyncAPI.Controllers
                     return BadRequest(new { message = "Role is required" });
                 }
 
+                if (!IsValidRole(model.Role))
+                {
+                    _logger.LogWarning("Invalid role: {Role}", model.Role);
+                    return BadRequest(new { message = "Role must be either 'student' or 'instructor'" });
+                }
+
                 if (!ModelState.IsValid)
                 {
                     var errors = ModelState.Values.SelectMany(v => v.Errors.Select(e => e.ErrorMessage));
@@ -125,7 +145,7 @@ namespace EduSyncAPI.Controllers
                     Email = model.Email.Trim(),
                     PasswordHash = HashPassword(model.Password),
                     Role = model.Role.Trim().ToLower(),
-                    Name = model.Email.Contains("@") ? model.Email.Split('@')[0] : model.Email
+                    Name = GenerateNameFromEmail(model.Email)
                 };
 
                 _logger.LogInformation("Creating new user with data: {UserId}, {Email}, {Role}, {Name}", 
