@@ -102,49 +102,88 @@ var jwtIssuer = builder.Configuration["Jwt:Issuer"];
 var jwtAudience = builder.Configuration["Jwt:Audience"];
 var jwtExpiry = builder.Configuration["Jwt:ExpiryInMinutes"];
 
-if (string.IsNullOrEmpty(jwtKey) || jwtKey.Length < 32)
+// Log configuration values (without sensitive data)
+builder.Logging.AddConsole();
+var logger = builder.Services.BuildServiceProvider().GetRequiredService<ILogger<Program>>();
+logger.LogInformation("JWT Configuration - Issuer: {Issuer}, Audience: {Audience}, Expiry: {Expiry}", 
+    jwtIssuer, jwtAudience, jwtExpiry);
+
+// Validate JWT configuration
+if (string.IsNullOrEmpty(jwtKey))
 {
+    logger.LogError("JWT:Key is missing or empty");
+    throw new InvalidOperationException("JWT:Key is required");
+}
+if (jwtKey.Length < 32)
+{
+    logger.LogError("JWT:Key is too short (must be at least 32 characters)");
     throw new InvalidOperationException("JWT:Key must be at least 32 characters long");
 }
 if (string.IsNullOrEmpty(jwtIssuer))
 {
+    logger.LogError("JWT:Issuer is missing or empty");
     throw new InvalidOperationException("JWT:Issuer is required");
 }
 if (string.IsNullOrEmpty(jwtAudience))
 {
+    logger.LogError("JWT:Audience is missing or empty");
     throw new InvalidOperationException("JWT:Audience is required");
 }
-if (!int.TryParse(jwtExpiry, out _))
+if (!int.TryParse(jwtExpiry, out var expiryMinutes) || expiryMinutes <= 0)
 {
-    throw new InvalidOperationException("JWT:ExpiryInMinutes must be a valid integer");
+    logger.LogError("JWT:ExpiryInMinutes is invalid: {Expiry}", jwtExpiry);
+    throw new InvalidOperationException("JWT:ExpiryInMinutes must be a positive integer");
 }
 
-var jwtLogger = builder.Services.BuildServiceProvider().GetRequiredService<ILogger<Program>>();
-jwtLogger.LogInformation("JWT configuration validated successfully");
+logger.LogInformation("JWT configuration validated successfully");
 
 var app = builder.Build();
 
-using (var scope = app.Services.CreateScope())
+// Configure logging
+app.Logger.LogInformation("Application starting up...");
+app.Logger.LogInformation("Environment: {Environment}", app.Environment.EnvironmentName);
+app.Logger.LogInformation("Content root path: {Path}", app.Environment.ContentRootPath);
+
+// Database migration with better error handling
+try
 {
+    using var scope = app.Services.CreateScope();
     var services = scope.ServiceProvider;
-    try
+    var context = services.GetRequiredService<AppDbContext>();
+    var dbLogger = services.GetRequiredService<ILogger<Program>>();
+    
+    dbLogger.LogInformation("Starting database migration...");
+    dbLogger.LogInformation("Connection string: {ConnectionString}", 
+        builder.Configuration.GetConnectionString("DefaultConnection")?.Substring(0, 20) + "...");
+    
+    // Test database connection
+    if (context.Database.CanConnect())
     {
-        var context = services.GetRequiredService<AppDbContext>();
-        var logger = services.GetRequiredService<ILogger<Program>>();
-        
-        logger.LogInformation("Starting database migration...");
-        context.Database.Migrate();
-        logger.LogInformation("Database migration completed successfully");
+        dbLogger.LogInformation("Database connection test successful");
     }
-    catch (Exception ex)
+    else
     {
-        var logger = services.GetRequiredService<ILogger<Program>>();
-        logger.LogError(ex, "An error occurred while migrating the database.");
-        if (ex.InnerException != null)
+        dbLogger.LogError("Cannot connect to database");
+        throw new InvalidOperationException("Cannot connect to database");
+    }
+    
+    context.Database.Migrate();
+    dbLogger.LogInformation("Database migration completed successfully");
+}
+catch (Exception ex)
+{
+    var startupLogger = app.Logger;
+    startupLogger.LogError(ex, "An error occurred during startup");
+    if (ex.InnerException != null)
+    {
+        startupLogger.LogError("Inner exception: {Message}", ex.InnerException.Message);
+        if (ex.InnerException.InnerException != null)
         {
-            logger.LogError("Inner exception: {Message}", ex.InnerException.Message);
+            startupLogger.LogError("Inner inner exception: {Message}", 
+                ex.InnerException.InnerException.Message);
         }
     }
+    throw; // Rethrow to ensure the application doesn't start with a broken database
 }
 
 // Enable Swagger in development mode
@@ -152,40 +191,57 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+    app.Logger.LogInformation("Swagger enabled for development environment");
 }
 
 // Add CORS middleware before other middleware
 app.UseCors("AllowFrontend");
+app.Logger.LogInformation("CORS middleware configured");
 
 // Add a middleware to handle CORS preflight
 app.Use(async (context, next) =>
 {
-    context.Response.Headers.Append("Access-Control-Allow-Origin", "https://calm-sand-0920fd500.6.azurestaticapps.net");
-    context.Response.Headers.Append("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    context.Response.Headers.Append("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
-    context.Response.Headers.Append("Access-Control-Allow-Credentials", "true");
-    context.Response.Headers.Append("Access-Control-Max-Age", "86400");
-
-    if (context.Request.Method == "OPTIONS")
+    try
     {
-        context.Response.StatusCode = 200;
-        return;
-    }
+        context.Response.Headers.Append("Access-Control-Allow-Origin", 
+            "https://calm-sand-0920fd500.6.azurestaticapps.net");
+        context.Response.Headers.Append("Access-Control-Allow-Methods", 
+            "GET, POST, PUT, DELETE, OPTIONS");
+        context.Response.Headers.Append("Access-Control-Allow-Headers", 
+            "Content-Type, Authorization, X-Requested-With");
+        context.Response.Headers.Append("Access-Control-Allow-Credentials", "true");
+        context.Response.Headers.Append("Access-Control-Max-Age", "86400");
 
-    await next();
+        if (context.Request.Method == "OPTIONS")
+        {
+            context.Response.StatusCode = 200;
+            return;
+        }
+
+        await next();
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogError(ex, "Error in CORS middleware");
+        throw;
+    }
 });
 
 if (!app.Environment.IsDevelopment())
 {
     app.UseHttpsRedirection();
+    app.Logger.LogInformation("HTTPS redirection enabled");
 }
 
 // Adding middlewares
 app.UseAuthentication();
 app.UseAuthorization();
+app.Logger.LogInformation("Authentication and authorization middleware configured");
 
 // Map controllers
 app.MapControllers();
+app.Logger.LogInformation("Controllers mapped");
 
 // Run the application
+app.Logger.LogInformation("Application startup complete, beginning to listen for requests");
 app.Run();
