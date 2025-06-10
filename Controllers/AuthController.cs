@@ -100,11 +100,27 @@ namespace EduSyncAPI.Controllers
                     Email = model.Email,
                     PasswordHash = HashPassword(model.Password),
                     Role = model.Role,
-                    Name = model.Email.Split('@')[0]
+                    Name = model.Email.Contains("@") ? model.Email.Split('@')[0] : model.Email
                 };
 
-                _context.Users.Add(user);
-                await _context.SaveChangesAsync();
+                _logger.LogInformation("Creating new user with data: {UserId}, {Email}, {Role}", 
+                    user.UserId, user.Email, user.Role);
+
+                try 
+                {
+                    _context.Users.Add(user);
+                    await _context.SaveChangesAsync();
+                    _logger.LogInformation("User saved successfully to database");
+                }
+                catch (DbUpdateException dbEx)
+                {
+                    _logger.LogError(dbEx, "Database error while saving user: {Message}", dbEx.Message);
+                    if (dbEx.InnerException != null)
+                    {
+                        _logger.LogError("Inner exception: {Message}", dbEx.InnerException.Message);
+                    }
+                    return StatusCode(500, new { message = "Database error while saving user", error = dbEx.Message });
+                }
 
                 var token = GenerateJwtToken(user);
 

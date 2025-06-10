@@ -104,18 +104,20 @@ using (var scope = app.Services.CreateScope())
     try
     {
         var context = services.GetRequiredService<AppDbContext>();
+        var logger = services.GetRequiredService<ILogger<Program>>();
+        
+        logger.LogInformation("Starting database migration...");
         context.Database.Migrate();
-
-        if (app.Environment.IsDevelopment())
-        {
-            context.Users.RemoveRange(context.Users);
-            await context.SaveChangesAsync();
-        }
+        logger.LogInformation("Database migration completed successfully");
     }
     catch (Exception ex)
     {
         var logger = services.GetRequiredService<ILogger<Program>>();
         logger.LogError(ex, "An error occurred while migrating the database.");
+        if (ex.InnerException != null)
+        {
+            logger.LogError("Inner exception: {Message}", ex.InnerException.Message);
+        }
     }
 }
 
