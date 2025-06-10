@@ -40,18 +40,13 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // CORS for frontend
 builder.Services.AddCors(options =>
 {
-    options.AddDefaultPolicy(policy =>
+    options.AddPolicy("AllowFrontend", policy =>
     {
         policy
-            .WithOrigins(
-                "https://calm-sand-0920fd500.6.azurestaticapps.net",
-                "http://localhost:3000"
-            )
+            .WithOrigins("https://calm-sand-0920fd500.6.azurestaticapps.net")
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowCredentials()
-            .WithExposedHeaders("Content-Disposition")
-            .SetPreflightMaxAge(TimeSpan.FromHours(1));
+            .AllowCredentials();
     });
 });
 
@@ -131,7 +126,7 @@ if (app.Environment.IsDevelopment())
 }
 
 // IMPORTANT: CORS must be before other middleware
-app.UseCors();
+app.UseCors("AllowFrontend");
 
 // Add a middleware to handle OPTIONS requests
 app.Use(async (context, next) =>
