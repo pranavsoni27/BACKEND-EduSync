@@ -40,12 +40,16 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // CORS for frontend
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowFrontend", policy =>
+    options.AddDefaultPolicy(policy =>
     {
         policy
-            .WithOrigins("https://calm-sand-0920fd500.6.azurestaticapps.net")
+            .SetIsOriginAllowed(origin => 
+                origin == "https://calm-sand-0920fd500.6.azurestaticapps.net" ||
+                origin == "http://localhost:3000" ||
+                origin == "http://localhost:5000" ||
+                origin == "http://localhost:5008")
             .AllowAnyMethod()
-            .WithHeaders("Content-Type", "Authorization", "Accept", "X-Requested-With")
+            .AllowAnyHeader()
             .AllowCredentials();
     });
 });
@@ -126,7 +130,21 @@ if (app.Environment.IsDevelopment())
 }
 
 // Add CORS middleware before other middleware
-app.UseCors("AllowFrontend");
+app.UseCors(); // Use default policy
+
+// Add a middleware to log CORS-related information
+app.Use(async (context, next) =>
+{
+    var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+    logger.LogInformation($"Request from origin: {context.Request.Headers.Origin}");
+    logger.LogInformation($"Request method: {context.Request.Method}");
+    logger.LogInformation($"Request path: {context.Request.Path}");
+    
+    await next();
+    
+    logger.LogInformation($"Response status: {context.Response.StatusCode}");
+    logger.LogInformation($"CORS headers: {string.Join(", ", context.Response.Headers.Where(h => h.Key.StartsWith("Access-Control-")))}");
+});
 
 if (!app.Environment.IsDevelopment())
 {
