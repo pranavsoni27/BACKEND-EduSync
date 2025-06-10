@@ -40,14 +40,13 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // CORS for frontend
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy =>
+    options.AddPolicy("AllowFrontend", policy =>
     {
         policy
-            .SetIsOriginAllowed(_ => true) // Allow any origin
+            .WithOrigins("https://calm-sand-0920fd500.6.azurestaticapps.net")
             .AllowAnyMethod()
             .WithHeaders("Content-Type", "Authorization", "Accept", "X-Requested-With")
-            .AllowCredentials()
-            .WithExposedHeaders("*");
+            .AllowCredentials();
     });
 });
 
@@ -127,26 +126,7 @@ if (app.Environment.IsDevelopment())
 }
 
 // Add CORS middleware before other middleware
-app.Use(async (context, next) =>
-{
-    // Always set CORS headers
-    context.Response.Headers.Add("Access-Control-Allow-Origin", "https://calm-sand-0920fd500.6.azurestaticapps.net");
-    context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With");
-    context.Response.Headers.Add("Access-Control-Allow-Credentials", "true");
-    context.Response.Headers.Add("Access-Control-Max-Age", "86400");
-
-    // Handle preflight requests
-    if (context.Request.Method == "OPTIONS")
-    {
-        context.Response.StatusCode = 200;
-        return;
-    }
-
-    await next();
-});
-
-app.UseCors("AllowAll");
+app.UseCors("AllowFrontend");
 
 if (!app.Environment.IsDevelopment())
 {
