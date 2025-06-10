@@ -114,16 +114,24 @@ namespace EduSyncAPI.Controllers
         {
             try
             {
-                _logger.LogInformation("Registration attempt for email: {Email}", model.Email);
+                _logger.LogInformation("Registration attempt received. Model: {@Model}", new { 
+                    model.Email, 
+                    model.Role, 
+                    model.FirstName, 
+                    model.LastName,
+                    HasPassword = !string.IsNullOrEmpty(model.Password)
+                });
 
-                // Validate model
+                // Log model state
                 if (!ModelState.IsValid)
                 {
-                    _logger.LogWarning("Invalid registration model state: {Errors}", 
-                        string.Join(", ", ModelState.Values
-                            .SelectMany(v => v.Errors)
-                            .Select(e => e.ErrorMessage)));
-                    return BadRequest(ModelState);
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    
+                    _logger.LogWarning("Invalid registration model state. Errors: {@Errors}", errors);
+                    return BadRequest(new { message = "Invalid input data", errors });
                 }
 
                 // Check if user already exists
@@ -140,28 +148,59 @@ namespace EduSyncAPI.Controllers
                     return BadRequest(new { message = "Invalid role specified" });
                 }
 
-                // Create user
-                var user = new User
+                try
                 {
-                    Email = model.Email,
-                    Name = $"{model.FirstName} {model.LastName}",
-                    Role = model.Role,
-                    PasswordHash = HashPassword(model.Password)
-                };
+                    // Create user
+                    var user = new User
+                    {
+                        Email = model.Email,
+                        Name = $"{model.FirstName} {model.LastName}",
+                        Role = model.Role,
+                        PasswordHash = HashPassword(model.Password)
+                    };
 
-                // Add user to database
-                _context.Users.Add(user);
-                await _context.SaveChangesAsync();
-                _logger.LogInformation("User registered successfully: {Email}", model.Email);
+                    _logger.LogInformation("Attempting to add user to database: {@User}", new { 
+                        user.Email, 
+                        user.Role, 
+                        user.Name 
+                    });
 
-                // Generate JWT token
-                var token = GenerateJwtToken(user);
-                return Ok(new { token });
+                    // Add user to database
+                    _context.Users.Add(user);
+                    await _context.SaveChangesAsync();
+                    _logger.LogInformation("User registered successfully: {Email}", model.Email);
+
+                    // Generate JWT token
+                    var token = GenerateJwtToken(user);
+                    return Ok(new { 
+                        token,
+                        id = user.UserId,
+                        email = user.Email,
+                        role = user.Role
+                    });
+                }
+                catch (DbUpdateException dbEx)
+                {
+                    _logger.LogError(dbEx, "Database error during user registration: {Message}", dbEx.Message);
+                    if (dbEx.InnerException != null)
+                    {
+                        _logger.LogError("Inner exception: {Message}", dbEx.InnerException.Message);
+                    }
+                    return StatusCode(500, new { message = "Database error during registration" });
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during user registration for email: {Email}", model.Email);
-                return StatusCode(500, new { message = "An error occurred during registration" });
+                _logger.LogError(ex, "Error during user registration for email: {Email}. Error: {Message}", 
+                    model.Email, ex.Message);
+                if (ex.InnerException != null)
+                {
+                    _logger.LogError("Inner exception: {Message}", ex.InnerException.Message);
+                }
+                return StatusCode(500, new { 
+                    message = "An error occurred during registration",
+                    error = ex.Message
+                });
             }
         }
 
