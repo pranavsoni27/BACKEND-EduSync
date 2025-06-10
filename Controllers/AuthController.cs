@@ -94,13 +94,16 @@ namespace EduSyncAPI.Controllers
                 _logger.LogInformation("Register request received from origin: {Origin}", Request.Headers["Origin"]);
                 _logger.LogInformation("Register request headers: {Headers}", 
                     string.Join(", ", Request.Headers.Select(h => $"{h.Key}: {h.Value}")));
-                _logger.LogInformation("Register request body: {Email}, {Role}", model.Email, model.Role);
+                _logger.LogInformation("Register request body: {Email}, {Role}", model?.Email, model?.Role);
 
                 if (model == null)
                 {
                     _logger.LogWarning("Register request body is null");
                     return BadRequest(new { message = "Request body is required" });
                 }
+
+                // Log the full model for debugging
+                _logger.LogInformation("Full registration model: {@Model}", model);
 
                 if (string.IsNullOrWhiteSpace(model.Email))
                 {
@@ -133,10 +136,19 @@ namespace EduSyncAPI.Controllers
                     return BadRequest(new { message = "Invalid input data", errors });
                 }
 
-                if (await _context.Users.AnyAsync(u => u.Email == model.Email))
+                try
                 {
-                    _logger.LogWarning("Registration failed: User already exists - {Email}", model.Email);
-                    return BadRequest(new { message = "User already exists" });
+                    var existingUser = await _context.Users.FirstOrDefaultAsync(u => u.Email == model.Email);
+                    if (existingUser != null)
+                    {
+                        _logger.LogWarning("Registration failed: User already exists - {Email}", model.Email);
+                        return BadRequest(new { message = "User already exists" });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error checking for existing user: {Message}", ex.Message);
+                    throw; // Rethrow to be caught by outer try-catch
                 }
 
                 var user = new User
@@ -154,8 +166,8 @@ namespace EduSyncAPI.Controllers
                 try 
                 {
                     _context.Users.Add(user);
-                    await _context.SaveChangesAsync();
-                    _logger.LogInformation("User saved successfully to database");
+                    var saveResult = await _context.SaveChangesAsync();
+                    _logger.LogInformation("User saved successfully to database. Save result: {Result}", saveResult);
                 }
                 catch (DbUpdateException dbEx)
                 {
@@ -163,8 +175,26 @@ namespace EduSyncAPI.Controllers
                     if (dbEx.InnerException != null)
                     {
                         _logger.LogError("Inner exception: {Message}", dbEx.InnerException.Message);
+                        if (dbEx.InnerException.InnerException != null)
+                        {
+                            _logger.LogError("Inner inner exception: {Message}", dbEx.InnerException.InnerException.Message);
+                        }
                     }
-                    return StatusCode(500, new { message = "Database error while saving user", error = dbEx.Message });
+                    return StatusCode(500, new { 
+                        message = "Database error while saving user", 
+                        error = dbEx.Message,
+                        innerError = dbEx.InnerException?.Message,
+                        details = dbEx.InnerException?.InnerException?.Message
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Unexpected error while saving user: {Message}", ex.Message);
+                    if (ex.InnerException != null)
+                    {
+                        _logger.LogError("Inner exception: {Message}", ex.InnerException.Message);
+                    }
+                    throw; // Rethrow to be caught by outer try-catch
                 }
 
                 try
@@ -182,7 +212,15 @@ namespace EduSyncAPI.Controllers
                 catch (Exception tokenEx)
                 {
                     _logger.LogError(tokenEx, "Error generating JWT token: {Message}", tokenEx.Message);
-                    return StatusCode(500, new { message = "Error generating authentication token", error = tokenEx.Message });
+                    if (tokenEx.InnerException != null)
+                    {
+                        _logger.LogError("Inner exception: {Message}", tokenEx.InnerException.Message);
+                    }
+                    return StatusCode(500, new { 
+                        message = "Error generating authentication token", 
+                        error = tokenEx.Message,
+                        innerError = tokenEx.InnerException?.Message
+                    });
                 }
             }
             catch (Exception ex)
@@ -191,8 +229,17 @@ namespace EduSyncAPI.Controllers
                 if (ex.InnerException != null)
                 {
                     _logger.LogError("Inner exception: {Message}", ex.InnerException.Message);
+                    if (ex.InnerException.InnerException != null)
+                    {
+                        _logger.LogError("Inner inner exception: {Message}", ex.InnerException.InnerException.Message);
+                    }
                 }
-                return StatusCode(500, new { message = "An error occurred during registration", error = ex.Message });
+                return StatusCode(500, new { 
+                    message = "An error occurred during registration", 
+                    error = ex.Message,
+                    innerError = ex.InnerException?.Message,
+                    details = ex.InnerException?.InnerException?.Message
+                });
             }
         }
 
