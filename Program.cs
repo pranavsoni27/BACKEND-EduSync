@@ -40,22 +40,23 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // CORS for frontend
 builder.Services.AddCors(options =>
 {
-    // options.AddPolicy("AllowFrontend", policy =>
-    //     policy.WithOrigins(
-    //         "http://localhost:3000", 
-    //         "https://localhost:3000"  // Development with HTTPS
-    //     )
-    //     .AllowAnyHeader()
-    //     .AllowAnyMethod()
-    //     .AllowCredentials());
     options.AddPolicy("AllowFrontend", policy =>
         policy.WithOrigins(
-            "https://calm-sand-0920fd500.6.azurestaticapps.net", 
-            "https://calm-sand-0920fd500.6.azurestaticapps.net"  // Development with HTTPS
+            "http://localhost:3000", 
+            "https://localhost:3000",  // Development with HTTPS
+            "https://calm-sand-0920fd500.6.azurestaticapps.net"
         )
         .AllowAnyHeader()
         .AllowAnyMethod()
         .AllowCredentials());
+    // options.AddPolicy("AllowFrontend", policy =>
+    //     policy.WithOrigins(
+    //         "https://calm-sand-0920fd500.6.azurestaticapps.net", 
+    //         "https://calm-sand-0920fd500.6.azurestaticapps.net"  // Development with HTTPS
+    //     )
+    //     .AllowAnyHeader()
+    //     .AllowAnyMethod()
+    //     .AllowCredentials());
 });
 
 // Swagger/OpenAPI
