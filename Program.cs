@@ -24,7 +24,6 @@ builder.Logging.SetMinimumLevel(LogLevel.Information);
 // Log environment and configuration
 var logger = builder.Services.BuildServiceProvider().GetRequiredService<ILogger<Program>>();
 logger.LogInformation("Starting application in {Environment} environment", builder.Environment.EnvironmentName);
-logger.LogInformation("Configuration sources: {Sources}", string.Join(", ", builder.Configuration.Providers.Select(p => p.GetType().Name)));
 
 // Add services to the container
 try
@@ -55,7 +54,7 @@ try
     logger.LogInformation("Using database connection string: {ConnectionString}", 
         connectionString.Replace(connectionString.Split(';').FirstOrDefault(s => s.Contains("Password=")) ?? "", "Password=*****"));
 
-    builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    builder.Services.AddDbContext<AppDbContext>(options =>
     {
         options.UseSqlServer(connectionString, sqlOptions =>
         {
@@ -141,7 +140,7 @@ try
     // Test database connection
     using (var scope = app.Services.CreateScope())
     {
-        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         try
         {
             logger.LogInformation("Testing database connection...");

@@ -14,6 +14,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using EduSyncAPI.DTOs.Users;
 
 namespace EduSyncAPI.Controllers
 {
@@ -21,12 +22,12 @@ namespace EduSyncAPI.Controllers
     [Route("api/[controller]")]
     public class AuthController : ControllerBase
     {
-        private readonly ApplicationDbContext _context;
+        private readonly AppDbContext _context;
         private readonly IConfiguration _configuration;
         private readonly ILogger<AuthController> _logger;
 
         public AuthController(
-            ApplicationDbContext context,
+            AppDbContext context,
             IConfiguration configuration,
             ILogger<AuthController> logger)
         {
@@ -86,9 +87,9 @@ namespace EduSyncAPI.Controllers
 
                 var claims = new[]
                 {
-                    new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                    new Claim(ClaimTypes.NameIdentifier, user.UserId.ToString()),
                     new Claim(ClaimTypes.Email, user.Email),
-                    new Claim(ClaimTypes.Role, user.Role.ToString())
+                    new Claim(ClaimTypes.Role, user.Role)
                 };
 
                 var token = new JwtSecurityToken(
@@ -133,8 +134,7 @@ namespace EduSyncAPI.Controllers
                 }
 
                 // Validate role
-                if (!Enum.TryParse<Role>(model.Role, true, out var role) || 
-                    !Enum.IsDefined(typeof(Role), role))
+                if (!IsValidRole(model.Role))
                 {
                     _logger.LogWarning("Invalid role specified: {Role}", model.Role);
                     return BadRequest(new { message = "Invalid role specified" });
@@ -144,18 +144,10 @@ namespace EduSyncAPI.Controllers
                 var user = new User
                 {
                     Email = model.Email,
-                    FirstName = model.FirstName,
-                    LastName = model.LastName,
-                    Role = role,
-                    CreatedAt = DateTime.UtcNow
+                    Name = $"{model.FirstName} {model.LastName}",
+                    Role = model.Role,
+                    PasswordHash = HashPassword(model.Password)
                 };
-
-                // Hash password
-                using (var hmac = new HMACSHA256())
-                {
-                    user.PasswordSalt = hmac.Key;
-                    user.PasswordHash = hmac.ComputeHash(Encoding.UTF8.GetBytes(model.Password));
-                }
 
                 // Add user to database
                 _context.Users.Add(user);
@@ -174,7 +166,7 @@ namespace EduSyncAPI.Controllers
         }
 
         [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] LoginModel model)
+        public async Task<IActionResult> Login([FromBody] LoginDto model)
         {
             try
             {
@@ -217,42 +209,5 @@ namespace EduSyncAPI.Controllers
                 return StatusCode(500, new { message = "An error occurred during login", error = ex.Message });
             }
         }
-    }
-
-    // Models can be declared here OR in separate files in a Models folder
-    public class UserModel
-    {
-        public int Id { get; set; }
-        public string Email { get; set; }
-        public string Password { get; set; }
-        public string Role { get; set; }
-        public string Token { get; set; }
-    }
-
-    public class RegisterModel
-    {
-        [Required(ErrorMessage = "Email is required")]
-        [EmailAddress(ErrorMessage = "Invalid email format")]
-        public string Email { get; set; }
-
-        [Required(ErrorMessage = "Password is required")]
-        [MinLength(6, ErrorMessage = "Password must be at least 6 characters")]
-        public string Password { get; set; }
-
-        [Required(ErrorMessage = "Role is required")]
-        public string Role { get; set; }
-    }
-
-    public class LoginModel
-    {
-        [Required(ErrorMessage = "Email is required")]
-        [EmailAddress(ErrorMessage = "Invalid email format")]
-        public string Email { get; set; }
-
-        [Required(ErrorMessage = "Password is required")]
-        public string Password { get; set; }
-
-        [Required(ErrorMessage = "Role is required")]
-        public string Role { get; set; }
     }
 }
