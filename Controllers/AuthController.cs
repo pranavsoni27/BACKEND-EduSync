@@ -21,15 +21,18 @@ namespace EduSyncAPI.Controllers
     [Route("api/[controller]")]
     public class AuthController : ControllerBase
     {
-        private readonly AppDbContext _context;
-        private readonly ILogger<AuthController> _logger;
+        private readonly ApplicationDbContext _context;
         private readonly IConfiguration _configuration;
+        private readonly ILogger<AuthController> _logger;
 
-        public AuthController(AppDbContext context, ILogger<AuthController> logger, IConfiguration configuration)
+        public AuthController(
+            ApplicationDbContext context,
+            IConfiguration configuration,
+            ILogger<AuthController> logger)
         {
             _context = context;
-            _logger = logger;
             _configuration = configuration;
+            _logger = logger;
         }
 
         private string HashPassword(string password)
@@ -65,181 +68,108 @@ namespace EduSyncAPI.Controllers
 
         private string GenerateJwtToken(User user)
         {
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
-            var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
-            var claims = new[]
-            {
-                new Claim(ClaimTypes.NameIdentifier, user.UserId.ToString()),
-                new Claim(ClaimTypes.Email, user.Email),
-                new Claim(ClaimTypes.Role, user.Role)
-            };
-
-            var token = new JwtSecurityToken(
-                issuer: _configuration["Jwt:Issuer"],
-                audience: _configuration["Jwt:Audience"],
-                claims: claims,
-                expires: DateTime.UtcNow.AddMinutes(Convert.ToDouble(_configuration["Jwt:ExpiryInMinutes"])),
-                signingCredentials: credentials
-            );
-
-            return new JwtSecurityTokenHandler().WriteToken(token);
-        }
-
-        [HttpPost("register")]
-        public async Task<IActionResult> Register([FromBody] RegisterModel model)
-        {
             try
             {
-                _logger.LogInformation("Register request received from origin: {Origin}", Request.Headers["Origin"]);
-                _logger.LogInformation("Register request headers: {Headers}", 
-                    string.Join(", ", Request.Headers.Select(h => $"{h.Key}: {h.Value}")));
-                _logger.LogInformation("Register request body: {Email}, {Role}", model?.Email, model?.Role);
+                var jwtKey = _configuration["Jwt:Key"];
+                var jwtIssuer = _configuration["Jwt:Issuer"];
+                var jwtAudience = _configuration["Jwt:Audience"];
+                var jwtExpiryInMinutes = _configuration.GetValue<int>("Jwt:ExpiryInMinutes", 60);
 
-                if (model == null)
+                if (string.IsNullOrEmpty(jwtKey) || string.IsNullOrEmpty(jwtIssuer) || string.IsNullOrEmpty(jwtAudience))
                 {
-                    _logger.LogWarning("Register request body is null");
-                    return BadRequest(new { message = "Request body is required" });
+                    _logger.LogError("JWT configuration is incomplete");
+                    throw new InvalidOperationException("JWT configuration is incomplete");
                 }
 
-                // Log the full model for debugging
-                _logger.LogInformation("Full registration model: {@Model}", model);
+                var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
+                var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-                if (string.IsNullOrWhiteSpace(model.Email))
+                var claims = new[]
                 {
-                    _logger.LogWarning("Email is null or empty");
-                    return BadRequest(new { message = "Email is required" });
-                }
-
-                if (string.IsNullOrWhiteSpace(model.Password))
-                {
-                    _logger.LogWarning("Password is null or empty");
-                    return BadRequest(new { message = "Password is required" });
-                }
-
-                if (string.IsNullOrWhiteSpace(model.Role))
-                {
-                    _logger.LogWarning("Role is null or empty");
-                    return BadRequest(new { message = "Role is required" });
-                }
-
-                if (!IsValidRole(model.Role))
-                {
-                    _logger.LogWarning("Invalid role: {Role}", model.Role);
-                    return BadRequest(new { message = "Role must be either 'student' or 'instructor'" });
-                }
-
-                if (!ModelState.IsValid)
-                {
-                    var errors = ModelState.Values.SelectMany(v => v.Errors.Select(e => e.ErrorMessage));
-                    _logger.LogWarning("Invalid registration data: {Errors}", string.Join(", ", errors));
-                    return BadRequest(new { message = "Invalid input data", errors });
-                }
-
-                try
-                {
-                    var existingUser = await _context.Users.FirstOrDefaultAsync(u => u.Email == model.Email);
-                    if (existingUser != null)
-                    {
-                        _logger.LogWarning("Registration failed: User already exists - {Email}", model.Email);
-                        return BadRequest(new { message = "User already exists" });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error checking for existing user: {Message}", ex.Message);
-                    throw; // Rethrow to be caught by outer try-catch
-                }
-
-                var user = new User
-                {
-                    UserId = Guid.NewGuid(),
-                    Email = model.Email.Trim(),
-                    PasswordHash = HashPassword(model.Password),
-                    Role = model.Role.Trim().ToLower(),
-                    Name = GenerateNameFromEmail(model.Email)
+                    new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                    new Claim(ClaimTypes.Email, user.Email),
+                    new Claim(ClaimTypes.Role, user.Role.ToString())
                 };
 
-                _logger.LogInformation("Creating new user with data: {UserId}, {Email}, {Role}, {Name}", 
-                    user.UserId, user.Email, user.Role, user.Name);
+                var token = new JwtSecurityToken(
+                    issuer: jwtIssuer,
+                    audience: jwtAudience,
+                    claims: claims,
+                    expires: DateTime.UtcNow.AddMinutes(jwtExpiryInMinutes),
+                    signingCredentials: credentials
+                );
 
-                try 
-                {
-                    _context.Users.Add(user);
-                    var saveResult = await _context.SaveChangesAsync();
-                    _logger.LogInformation("User saved successfully to database. Save result: {Result}", saveResult);
-                }
-                catch (DbUpdateException dbEx)
-                {
-                    _logger.LogError(dbEx, "Database error while saving user: {Message}", dbEx.Message);
-                    if (dbEx.InnerException != null)
-                    {
-                        _logger.LogError("Inner exception: {Message}", dbEx.InnerException.Message);
-                        if (dbEx.InnerException.InnerException != null)
-                        {
-                            _logger.LogError("Inner inner exception: {Message}", dbEx.InnerException.InnerException.Message);
-                        }
-                    }
-                    return StatusCode(500, new { 
-                        message = "Database error while saving user", 
-                        error = dbEx.Message,
-                        innerError = dbEx.InnerException?.Message,
-                        details = dbEx.InnerException?.InnerException?.Message
-                    });
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Unexpected error while saving user: {Message}", ex.Message);
-                    if (ex.InnerException != null)
-                    {
-                        _logger.LogError("Inner exception: {Message}", ex.InnerException.Message);
-                    }
-                    throw; // Rethrow to be caught by outer try-catch
-                }
-
-                try
-                {
-                    var token = GenerateJwtToken(user);
-                    _logger.LogInformation("JWT token generated successfully for user: {Email}", user.Email);
-
-                    return Ok(new { 
-                        token = token, 
-                        id = user.UserId,
-                        email = user.Email,
-                        role = user.Role
-                    });
-                }
-                catch (Exception tokenEx)
-                {
-                    _logger.LogError(tokenEx, "Error generating JWT token: {Message}", tokenEx.Message);
-                    if (tokenEx.InnerException != null)
-                    {
-                        _logger.LogError("Inner exception: {Message}", tokenEx.InnerException.Message);
-                    }
-                    return StatusCode(500, new { 
-                        message = "Error generating authentication token", 
-                        error = tokenEx.Message,
-                        innerError = tokenEx.InnerException?.Message
-                    });
-                }
+                return new JwtSecurityTokenHandler().WriteToken(token);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during registration for user: {Email}", model?.Email);
-                if (ex.InnerException != null)
+                _logger.LogError(ex, "Error generating JWT token for user: {Email}", user.Email);
+                throw;
+            }
+        }
+
+        [HttpPost("register")]
+        public async Task<IActionResult> Register(RegisterDto model)
+        {
+            try
+            {
+                _logger.LogInformation("Registration attempt for email: {Email}", model.Email);
+
+                // Validate model
+                if (!ModelState.IsValid)
                 {
-                    _logger.LogError("Inner exception: {Message}", ex.InnerException.Message);
-                    if (ex.InnerException.InnerException != null)
-                    {
-                        _logger.LogError("Inner inner exception: {Message}", ex.InnerException.InnerException.Message);
-                    }
+                    _logger.LogWarning("Invalid registration model state: {Errors}", 
+                        string.Join(", ", ModelState.Values
+                            .SelectMany(v => v.Errors)
+                            .Select(e => e.ErrorMessage)));
+                    return BadRequest(ModelState);
                 }
-                return StatusCode(500, new { 
-                    message = "An error occurred during registration", 
-                    error = ex.Message,
-                    innerError = ex.InnerException?.Message,
-                    details = ex.InnerException?.InnerException?.Message
-                });
+
+                // Check if user already exists
+                if (await _context.Users.AnyAsync(u => u.Email == model.Email))
+                {
+                    _logger.LogWarning("Registration failed - Email already exists: {Email}", model.Email);
+                    return BadRequest(new { message = "Email already registered" });
+                }
+
+                // Validate role
+                if (!Enum.TryParse<Role>(model.Role, true, out var role) || 
+                    !Enum.IsDefined(typeof(Role), role))
+                {
+                    _logger.LogWarning("Invalid role specified: {Role}", model.Role);
+                    return BadRequest(new { message = "Invalid role specified" });
+                }
+
+                // Create user
+                var user = new User
+                {
+                    Email = model.Email,
+                    FirstName = model.FirstName,
+                    LastName = model.LastName,
+                    Role = role,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                // Hash password
+                using (var hmac = new HMACSHA256())
+                {
+                    user.PasswordSalt = hmac.Key;
+                    user.PasswordHash = hmac.ComputeHash(Encoding.UTF8.GetBytes(model.Password));
+                }
+
+                // Add user to database
+                _context.Users.Add(user);
+                await _context.SaveChangesAsync();
+                _logger.LogInformation("User registered successfully: {Email}", model.Email);
+
+                // Generate JWT token
+                var token = GenerateJwtToken(user);
+                return Ok(new { token });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during user registration for email: {Email}", model.Email);
+                return StatusCode(500, new { message = "An error occurred during registration" });
             }
         }
 

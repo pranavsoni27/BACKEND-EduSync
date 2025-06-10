@@ -8,240 +8,157 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
-
-// jwt
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidIssuer = builder.Configuration["Jwt:Issuer"],
-            ValidAudience = builder.Configuration["Jwt:Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
-        };
-    });
-
-builder.Services.AddDbContext<AppDbContext>(options =>
-{
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"), sqlOptions =>
-    {
-        sqlOptions.EnableRetryOnFailure(
-            maxRetryCount: 3,
-            maxRetryDelay: TimeSpan.FromSeconds(30),
-            errorNumbersToAdd: null);
-    });
-});
-
-// CORS for frontend
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowFrontend", policy =>
-    {
-        policy
-            .WithOrigins("https://calm-sand-0920fd500.6.azurestaticapps.net")
-            .WithMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-            .WithHeaders("Content-Type", "Authorization", "Accept")
-            .SetIsOriginAllowed(origin => true) // Allow all origins for now
-            .AllowCredentials();
-    });
-});
-
-// Swagger/OpenAPI
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c =>
-{
-    c.SwaggerDoc("v1", new OpenApiInfo
-    {
-        Title = "EduSync API",
-        Version = "v1",
-        Description = "API for EduSync Learning Management System"
-    });
-
-    var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
-    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
-    if (File.Exists(xmlPath))
-    {
-        c.IncludeXmlComments(xmlPath);
-    }
-    c.CustomSchemaIds(type => type.FullName?.Replace("+", "_"));
-
-    // Add JWT Authentication to Swagger
-    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-    {
-        Description = "JWT Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {token}\"",
-        Name = "Authorization",
-        In = ParameterLocation.Header,
-        Type = SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
-    });
-
-    c.AddSecurityRequirement(new OpenApiSecurityRequirement
-    {
-        {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
-        }
-    });
-});
-
-// Add JWT configuration validation
-var jwtKey = builder.Configuration["Jwt:Key"];
-var jwtIssuer = builder.Configuration["Jwt:Issuer"];
-var jwtAudience = builder.Configuration["Jwt:Audience"];
-var jwtExpiry = builder.Configuration["Jwt:ExpiryInMinutes"];
-
-// Log configuration values (without sensitive data)
-builder.Logging.AddConsole();
-var logger = builder.Services.BuildServiceProvider().GetRequiredService<ILogger<Program>>();
-logger.LogInformation("JWT Configuration - Issuer: {Issuer}, Audience: {Audience}, Expiry: {Expiry}", 
-    jwtIssuer, jwtAudience, jwtExpiry);
-
-// Validate JWT configuration
-if (string.IsNullOrEmpty(jwtKey))
-{
-    logger.LogError("JWT:Key is missing or empty");
-    throw new InvalidOperationException("JWT:Key is required");
-}
-if (jwtKey.Length < 32)
-{
-    logger.LogError("JWT:Key is too short (must be at least 32 characters)");
-    throw new InvalidOperationException("JWT:Key must be at least 32 characters long");
-}
-if (string.IsNullOrEmpty(jwtIssuer))
-{
-    logger.LogError("JWT:Issuer is missing or empty");
-    throw new InvalidOperationException("JWT:Issuer is required");
-}
-if (string.IsNullOrEmpty(jwtAudience))
-{
-    logger.LogError("JWT:Audience is missing or empty");
-    throw new InvalidOperationException("JWT:Audience is required");
-}
-if (!int.TryParse(jwtExpiry, out var expiryMinutes) || expiryMinutes <= 0)
-{
-    logger.LogError("JWT:ExpiryInMinutes is invalid: {Expiry}", jwtExpiry);
-    throw new InvalidOperationException("JWT:ExpiryInMinutes must be a positive integer");
-}
-
-logger.LogInformation("JWT configuration validated successfully");
-
-var app = builder.Build();
+// Add configuration sources
+builder.Configuration
+    .SetBasePath(builder.Environment.ContentRootPath)
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true)
+    .AddEnvironmentVariables();
 
 // Configure logging
-app.Logger.LogInformation("Application starting up...");
-app.Logger.LogInformation("Environment: {Environment}", app.Environment.EnvironmentName);
-app.Logger.LogInformation("Content root path: {Path}", app.Environment.ContentRootPath);
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+builder.Logging.SetMinimumLevel(LogLevel.Information);
 
-// Database migration with better error handling
+// Log environment and configuration
+var logger = builder.Services.BuildServiceProvider().GetRequiredService<ILogger<Program>>();
+logger.LogInformation("Starting application in {Environment} environment", builder.Environment.EnvironmentName);
+logger.LogInformation("Configuration sources: {Sources}", string.Join(", ", builder.Configuration.Providers.Select(p => p.GetType().Name)));
+
+// Add services to the container
 try
 {
-    using var scope = app.Services.CreateScope();
-    var services = scope.ServiceProvider;
-    var context = services.GetRequiredService<AppDbContext>();
-    var dbLogger = services.GetRequiredService<ILogger<Program>>();
+    // Configure CORS
+    var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? 
+        new[] { "https://calm-sand-0920fd500.6.azurestaticapps.net" };
     
-    dbLogger.LogInformation("Starting database migration...");
-    dbLogger.LogInformation("Connection string: {ConnectionString}", 
-        builder.Configuration.GetConnectionString("DefaultConnection")?.Substring(0, 20) + "...");
+    logger.LogInformation("Configuring CORS with origins: {Origins}", string.Join(", ", corsOrigins));
     
-    // Test database connection
-    if (context.Database.CanConnect())
+    builder.Services.AddCors(options =>
     {
-        dbLogger.LogInformation("Database connection test successful");
-    }
-    else
-    {
-        dbLogger.LogError("Cannot connect to database");
-        throw new InvalidOperationException("Cannot connect to database");
-    }
-    
-    context.Database.Migrate();
-    dbLogger.LogInformation("Database migration completed successfully");
-}
-catch (Exception ex)
-{
-    var startupLogger = app.Logger;
-    startupLogger.LogError(ex, "An error occurred during startup");
-    if (ex.InnerException != null)
-    {
-        startupLogger.LogError("Inner exception: {Message}", ex.InnerException.Message);
-        if (ex.InnerException.InnerException != null)
+        options.AddPolicy("AllowSpecificOrigins", policy =>
         {
-            startupLogger.LogError("Inner inner exception: {Message}", 
-                ex.InnerException.InnerException.Message);
-        }
-    }
-    throw; // Rethrow to ensure the application doesn't start with a broken database
-}
+            policy.WithOrigins(corsOrigins)
+                  .AllowAnyMethod()
+                  .AllowAnyHeader()
+                  .AllowCredentials();
+        });
+    });
 
-// Enable Swagger in development mode
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-    app.Logger.LogInformation("Swagger enabled for development environment");
-}
-
-// Add CORS middleware before other middleware
-app.UseCors("AllowFrontend");
-app.Logger.LogInformation("CORS middleware configured");
-
-// Add a middleware to handle CORS preflight
-app.Use(async (context, next) =>
-{
-    try
+    // Configure database
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    if (string.IsNullOrEmpty(connectionString))
     {
-        context.Response.Headers.Append("Access-Control-Allow-Origin", 
-            "https://calm-sand-0920fd500.6.azurestaticapps.net");
-        context.Response.Headers.Append("Access-Control-Allow-Methods", 
-            "GET, POST, PUT, DELETE, OPTIONS");
-        context.Response.Headers.Append("Access-Control-Allow-Headers", 
-            "Content-Type, Authorization, X-Requested-With");
-        context.Response.Headers.Append("Access-Control-Allow-Credentials", "true");
-        context.Response.Headers.Append("Access-Control-Max-Age", "86400");
+        throw new InvalidOperationException("Connection string 'DefaultConnection' not found in configuration.");
+    }
+    logger.LogInformation("Using database connection string: {ConnectionString}", 
+        connectionString.Replace(connectionString.Split(';').FirstOrDefault(s => s.Contains("Password=")) ?? "", "Password=*****"));
 
+    builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    {
+        options.UseSqlServer(connectionString, sqlOptions =>
+        {
+            sqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 3,
+                maxRetryDelay: TimeSpan.FromSeconds(30),
+                errorNumbersToAdd: null);
+        });
+    });
+
+    // Configure JWT
+    var jwtKey = builder.Configuration["Jwt:Key"];
+    var jwtIssuer = builder.Configuration["Jwt:Issuer"];
+    var jwtAudience = builder.Configuration["Jwt:Audience"];
+    var jwtExpiryInMinutes = builder.Configuration.GetValue<int>("Jwt:ExpiryInMinutes", 60);
+
+    if (string.IsNullOrEmpty(jwtKey) || string.IsNullOrEmpty(jwtIssuer) || string.IsNullOrEmpty(jwtAudience))
+    {
+        throw new InvalidOperationException("JWT configuration is incomplete. Please check Jwt:Key, Jwt:Issuer, and Jwt:Audience settings.");
+    }
+
+    logger.LogInformation("JWT configured with Issuer: {Issuer}, Audience: {Audience}, Expiry: {Expiry} minutes",
+        jwtIssuer, jwtAudience, jwtExpiryInMinutes);
+
+    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddJwtBearer(options =>
+        {
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = jwtIssuer,
+                ValidAudience = jwtAudience,
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+                ClockSkew = TimeSpan.Zero
+            };
+        });
+
+    // Add other services
+    builder.Services.AddControllers();
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddSwaggerGen();
+
+    var app = builder.Build();
+
+    // Configure the HTTP request pipeline
+    if (app.Environment.IsDevelopment())
+    {
+        app.UseSwagger();
+        app.UseSwaggerUI();
+    }
+
+    // Use CORS before other middleware
+    app.UseCors("AllowSpecificOrigins");
+
+    // Add custom middleware for CORS preflight
+    app.Use(async (context, next) =>
+    {
         if (context.Request.Method == "OPTIONS")
         {
+            logger.LogInformation("Handling OPTIONS request for path: {Path}", context.Request.Path);
+            context.Response.Headers.Append("Access-Control-Allow-Origin", 
+                corsOrigins.Contains(context.Request.Headers["Origin"].ToString()) 
+                    ? context.Request.Headers["Origin"].ToString() 
+                    : corsOrigins[0]);
+            context.Response.Headers.Append("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+            context.Response.Headers.Append("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+            context.Response.Headers.Append("Access-Control-Allow-Credentials", "true");
+            context.Response.Headers.Append("Access-Control-Max-Age", "86400");
             context.Response.StatusCode = 200;
             return;
         }
-
         await next();
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogError(ex, "Error in CORS middleware");
-        throw;
-    }
-});
+    });
 
-if (!app.Environment.IsDevelopment())
-{
     app.UseHttpsRedirection();
-    app.Logger.LogInformation("HTTPS redirection enabled");
+    app.UseAuthentication();
+    app.UseAuthorization();
+    app.MapControllers();
+
+    // Test database connection
+    using (var scope = app.Services.CreateScope())
+    {
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        try
+        {
+            logger.LogInformation("Testing database connection...");
+            await dbContext.Database.CanConnectAsync();
+            logger.LogInformation("Database connection successful");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Database connection failed");
+            throw;
+        }
+    }
+
+    app.Run();
 }
-
-// Adding middlewares
-app.UseAuthentication();
-app.UseAuthorization();
-app.Logger.LogInformation("Authentication and authorization middleware configured");
-
-// Map controllers
-app.MapControllers();
-app.Logger.LogInformation("Controllers mapped");
-
-// Run the application
-app.Logger.LogInformation("Application startup complete, beginning to listen for requests");
-app.Run();
+catch (Exception ex)
+{
+    logger.LogError(ex, "Application startup failed");
+    throw;
+}
