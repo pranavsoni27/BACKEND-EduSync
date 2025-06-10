@@ -119,8 +119,8 @@ if (!int.TryParse(jwtExpiry, out _))
     throw new InvalidOperationException("JWT:ExpiryInMinutes must be a valid integer");
 }
 
-var logger = builder.Services.BuildServiceProvider().GetRequiredService<ILogger<Program>>();
-logger.LogInformation("JWT configuration validated successfully");
+var jwtLogger = builder.Services.BuildServiceProvider().GetRequiredService<ILogger<Program>>();
+jwtLogger.LogInformation("JWT configuration validated successfully");
 
 var app = builder.Build();
 
@@ -160,13 +160,14 @@ app.UseCors("AllowFrontend");
 // Add a middleware to handle CORS preflight
 app.Use(async (context, next) =>
 {
+    context.Response.Headers.Append("Access-Control-Allow-Origin", "https://calm-sand-0920fd500.6.azurestaticapps.net");
+    context.Response.Headers.Append("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    context.Response.Headers.Append("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+    context.Response.Headers.Append("Access-Control-Allow-Credentials", "true");
+    context.Response.Headers.Append("Access-Control-Max-Age", "86400");
+
     if (context.Request.Method == "OPTIONS")
     {
-        context.Response.Headers.Add("Access-Control-Allow-Origin", context.Request.Headers["Origin"]);
-        context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-        context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept");
-        context.Response.Headers.Add("Access-Control-Allow-Credentials", "true");
-        context.Response.Headers.Add("Access-Control-Max-Age", "86400");
         context.Response.StatusCode = 200;
         return;
     }
