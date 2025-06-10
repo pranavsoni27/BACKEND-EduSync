@@ -43,14 +43,11 @@ builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
     {
         policy
-            .SetIsOriginAllowed(origin => 
-                origin == "https://calm-sand-0920fd500.6.azurestaticapps.net" ||
-                origin == "http://localhost:3000" ||
-                origin == "http://localhost:5000" ||
-                origin == "http://localhost:5008")
+            .AllowAnyOrigin()  // Allow any origin for now
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowCredentials();
+            .SetIsOriginAllowed(origin => true) // Allow all origins
+            .WithExposedHeaders("*");
     });
 });
 
@@ -132,18 +129,24 @@ if (app.Environment.IsDevelopment())
 // Add CORS middleware before other middleware
 app.UseCors(); // Use default policy
 
-// Add a middleware to log CORS-related information
+// Add a middleware to force CORS headers
 app.Use(async (context, next) =>
 {
-    var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
-    logger.LogInformation($"Request from origin: {context.Request.Headers.Origin}");
-    logger.LogInformation($"Request method: {context.Request.Method}");
-    logger.LogInformation($"Request path: {context.Request.Path}");
-    
+    // Force CORS headers for all responses
+    context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
+    context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    context.Response.Headers.Add("Access-Control-Allow-Headers", "*");
+    context.Response.Headers.Add("Access-Control-Allow-Credentials", "true");
+    context.Response.Headers.Add("Access-Control-Max-Age", "86400");
+
+    // Handle preflight requests
+    if (context.Request.Method == "OPTIONS")
+    {
+        context.Response.StatusCode = 200;
+        return;
+    }
+
     await next();
-    
-    logger.LogInformation($"Response status: {context.Response.StatusCode}");
-    logger.LogInformation($"CORS headers: {string.Join(", ", context.Response.Headers.Where(h => h.Key.StartsWith("Access-Control-")))}");
 });
 
 if (!app.Environment.IsDevelopment())
