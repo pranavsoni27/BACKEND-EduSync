@@ -43,17 +43,11 @@ builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
     {
         policy
-            .SetIsOriginAllowed(origin => 
-                origin == "http://localhost:3000" ||
-                origin == "https://localhost:3000" ||
-                origin == "https://calm-sand-0920fd500.6.azurestaticapps.net" ||
-                origin == "https://pranavwebapp1-ebcdg5gjbzfrbvh8.centralindia-01.azurewebsites.net"
-            )
+            .AllowAnyOrigin()  // Temporarily allow any origin for testing
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials()
-            .WithExposedHeaders("Content-Disposition", "Content-Type", "Authorization")
-            .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
+            .WithExposedHeaders("*");
     });
 });
 
@@ -129,28 +123,28 @@ using (var scope = app.Services.CreateScope())
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "EduSync API V1");
-        c.RoutePrefix = "swagger";
-    });
+    app.UseSwaggerUI();
 }
 
-// Enable CORS before other middleware
+// IMPORTANT: UseCors must be called before other middleware
 app.UseCors();
 
-// Add OPTIONS handling for preflight requests
+// Add explicit CORS headers for all responses
 app.Use(async (context, next) =>
 {
+    context.Response.Headers.Add("Access-Control-Allow-Origin", context.Request.Headers["Origin"]);
+    context.Response.Headers.Add("Access-Control-Allow-Credentials", "true");
+    context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type,Authorization,Accept,Origin,User-Agent,DNT,Cache-Control,X-Mx-ReqToken,Keep-Alive,X-Requested-With,If-Modified-Since");
+    context.Response.Headers.Add("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+    context.Response.Headers.Add("Access-Control-Max-Age", "86400"); // 24 hours
+
+    // Handle preflight requests
     if (context.Request.Method == "OPTIONS")
     {
-        context.Response.Headers.Add("Access-Control-Allow-Origin", context.Request.Headers["Origin"]);
-        context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type,Authorization");
-        context.Response.Headers.Add("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-        context.Response.Headers.Add("Access-Control-Allow-Credentials", "true");
         context.Response.StatusCode = 200;
         return;
     }
+
     await next();
 });
 
