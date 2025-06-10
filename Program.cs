@@ -43,11 +43,10 @@ builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
     {
         policy
-            .AllowAnyOrigin()  // Allow any origin for now
+            .WithOrigins("https://calm-sand-0920fd500.6.azurestaticapps.net")
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .SetIsOriginAllowed(origin => true) // Allow all origins
-            .WithExposedHeaders("*");
+            .AllowCredentials();
     });
 });
 
@@ -127,27 +126,7 @@ if (app.Environment.IsDevelopment())
 }
 
 // Add CORS middleware before other middleware
-app.UseCors(); // Use default policy
-
-// Add a middleware to force CORS headers
-app.Use(async (context, next) =>
-{
-    // Force CORS headers for all responses
-    context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
-    context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    context.Response.Headers.Add("Access-Control-Allow-Headers", "*");
-    context.Response.Headers.Add("Access-Control-Allow-Credentials", "true");
-    context.Response.Headers.Add("Access-Control-Max-Age", "86400");
-
-    // Handle preflight requests
-    if (context.Request.Method == "OPTIONS")
-    {
-        context.Response.StatusCode = 200;
-        return;
-    }
-
-    await next();
-});
+app.UseCors();
 
 if (!app.Environment.IsDevelopment())
 {
@@ -155,8 +134,8 @@ if (!app.Environment.IsDevelopment())
 }
 
 // Adding middlewares
-app.UseAuthentication(); // authentication means verifying user identity
-app.UseAuthorization();  // authorization means checking user permissions
+app.UseAuthentication();
+app.UseAuthorization();
 
 // Map controllers
 app.MapControllers();

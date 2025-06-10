@@ -14,11 +14,13 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using Microsoft.AspNetCore.Cors;
 
 namespace EduSyncAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [EnableCors]
     public class AuthController : ControllerBase
     {
         private readonly AppDbContext _context;
@@ -73,10 +75,19 @@ namespace EduSyncAPI.Controllers
         }
 
         [HttpPost("register")]
+        [EnableCors]
         public async Task<IActionResult> Register([FromBody] RegisterModel model)
         {
             try
             {
+                _logger.LogInformation("Register request received from origin: {Origin}", Request.Headers["Origin"]);
+                _logger.LogInformation("Register request headers: {Headers}", 
+                    string.Join(", ", Request.Headers.Select(h => $"{h.Key}: {h.Value}")));
+
+                Response.Headers.Add("Access-Control-Allow-Origin", "*");
+                Response.Headers.Add("Access-Control-Allow-Methods", "POST, OPTIONS");
+                Response.Headers.Add("Access-Control-Allow-Headers", "*");
+
                 _logger.LogInformation("Attempting to register user: {Email}", model.Email);
 
                 if (!ModelState.IsValid)
@@ -123,10 +134,19 @@ namespace EduSyncAPI.Controllers
         }
 
         [HttpPost("login")]
+        [EnableCors]
         public async Task<IActionResult> Login([FromBody] LoginModel model)
         {
             try
             {
+                _logger.LogInformation("Login request received from origin: {Origin}", Request.Headers["Origin"]);
+                _logger.LogInformation("Login request headers: {Headers}", 
+                    string.Join(", ", Request.Headers.Select(h => $"{h.Key}: {h.Value}")));
+
+                Response.Headers.Add("Access-Control-Allow-Origin", "*");
+                Response.Headers.Add("Access-Control-Allow-Methods", "POST, OPTIONS");
+                Response.Headers.Add("Access-Control-Allow-Headers", "*");
+
                 _logger.LogInformation("Attempting to login user: {Email}", model.Email);
 
                 if (!ModelState.IsValid)
@@ -163,6 +183,17 @@ namespace EduSyncAPI.Controllers
                 _logger.LogError(ex, "Error during login for user: {Email}", model.Email);
                 return StatusCode(500, new { message = "An error occurred during login", error = ex.Message });
             }
+        }
+
+        [HttpOptions]
+        [EnableCors]
+        public IActionResult Options()
+        {
+            Response.Headers.Add("Access-Control-Allow-Origin", "*");
+            Response.Headers.Add("Access-Control-Allow-Methods", "POST, OPTIONS");
+            Response.Headers.Add("Access-Control-Allow-Headers", "*");
+            Response.Headers.Add("Access-Control-Max-Age", "86400");
+            return Ok();
         }
     }
 
