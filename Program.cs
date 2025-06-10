@@ -45,7 +45,7 @@ builder.Services.AddCors(options =>
         policy
             .SetIsOriginAllowed(_ => true) // Allow any origin
             .AllowAnyMethod()
-            .AllowAnyHeader()
+            .WithHeaders("Content-Type", "Authorization", "Accept", "X-Requested-With")
             .AllowCredentials()
             .WithExposedHeaders("*");
     });
@@ -132,7 +132,7 @@ app.Use(async (context, next) =>
     // Always set CORS headers
     context.Response.Headers.Add("Access-Control-Allow-Origin", "https://calm-sand-0920fd500.6.azurestaticapps.net");
     context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    context.Response.Headers.Add("Access-Control-Allow-Headers", "*");
+    context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With");
     context.Response.Headers.Add("Access-Control-Allow-Credentials", "true");
     context.Response.Headers.Add("Access-Control-Max-Age", "86400");
 
