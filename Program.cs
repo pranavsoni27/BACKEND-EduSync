@@ -30,7 +30,10 @@ try
 {
     // Configure CORS
     var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? 
-        new[] { "https://calm-sand-0920fd500.6.azurestaticapps.net" };
+        new[] { 
+            "https://calm-sand-0920fd500.6.azurestaticapps.net",
+            "https://pranavwebapp1-ebcdg5gjbzfrbvh8.centralindia-01.azurewebsites.net"
+        };
     
     logger.LogInformation("Configuring CORS with origins: {Origins}", string.Join(", ", corsOrigins));
     
