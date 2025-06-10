@@ -44,19 +44,11 @@ builder.Services.AddCors(options =>
         policy.WithOrigins(
             "http://localhost:3000", 
             "https://localhost:3000",  // Development with HTTPS
-            "https://calm-sand-0920fd500.6.azurestaticapps.net"
+            "https://calm-sand-0920fd500.6.azurestaticapps.net"  // Azure Static Web App
         )
         .AllowAnyHeader()
         .AllowAnyMethod()
         .AllowCredentials());
-    // options.AddPolicy("AllowFrontend", policy =>
-    //     policy.WithOrigins(
-    //         "https://calm-sand-0920fd500.6.azurestaticapps.net", 
-    //         "https://calm-sand-0920fd500.6.azurestaticapps.net"  // Development with HTTPS
-    //     )
-    //     .AllowAnyHeader()
-    //     .AllowAnyMethod()
-    //     .AllowCredentials());
 });
 
 // Swagger/OpenAPI
@@ -138,13 +130,13 @@ if (app.Environment.IsDevelopment())
     });
 }
 
+// Enable CORS before other middleware
+app.UseCors("AllowFrontend");
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseHttpsRedirection();
 }
-
-// Enable CORS before authentication
-app.UseCors("AllowFrontend");
 
 // Adding middlewares
 app.UseAuthentication(); // authentication means verifying user identity
