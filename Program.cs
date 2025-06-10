@@ -96,6 +96,32 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
+// Add JWT configuration validation
+var jwtKey = builder.Configuration["Jwt:Key"];
+var jwtIssuer = builder.Configuration["Jwt:Issuer"];
+var jwtAudience = builder.Configuration["Jwt:Audience"];
+var jwtExpiry = builder.Configuration["Jwt:ExpiryInMinutes"];
+
+if (string.IsNullOrEmpty(jwtKey) || jwtKey.Length < 32)
+{
+    throw new InvalidOperationException("JWT:Key must be at least 32 characters long");
+}
+if (string.IsNullOrEmpty(jwtIssuer))
+{
+    throw new InvalidOperationException("JWT:Issuer is required");
+}
+if (string.IsNullOrEmpty(jwtAudience))
+{
+    throw new InvalidOperationException("JWT:Audience is required");
+}
+if (!int.TryParse(jwtExpiry, out _))
+{
+    throw new InvalidOperationException("JWT:ExpiryInMinutes must be a valid integer");
+}
+
+var logger = builder.Services.BuildServiceProvider().GetRequiredService<ILogger<Program>>();
+logger.LogInformation("JWT configuration validated successfully");
+
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())

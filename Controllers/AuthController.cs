@@ -80,6 +80,31 @@ namespace EduSyncAPI.Controllers
                 _logger.LogInformation("Register request received from origin: {Origin}", Request.Headers["Origin"]);
                 _logger.LogInformation("Register request headers: {Headers}", 
                     string.Join(", ", Request.Headers.Select(h => $"{h.Key}: {h.Value}")));
+                _logger.LogInformation("Register request body: {Email}, {Role}", model.Email, model.Role);
+
+                if (model == null)
+                {
+                    _logger.LogWarning("Register request body is null");
+                    return BadRequest(new { message = "Request body is required" });
+                }
+
+                if (string.IsNullOrWhiteSpace(model.Email))
+                {
+                    _logger.LogWarning("Email is null or empty");
+                    return BadRequest(new { message = "Email is required" });
+                }
+
+                if (string.IsNullOrWhiteSpace(model.Password))
+                {
+                    _logger.LogWarning("Password is null or empty");
+                    return BadRequest(new { message = "Password is required" });
+                }
+
+                if (string.IsNullOrWhiteSpace(model.Role))
+                {
+                    _logger.LogWarning("Role is null or empty");
+                    return BadRequest(new { message = "Role is required" });
+                }
 
                 if (!ModelState.IsValid)
                 {
@@ -97,14 +122,14 @@ namespace EduSyncAPI.Controllers
                 var user = new User
                 {
                     UserId = Guid.NewGuid(),
-                    Email = model.Email,
+                    Email = model.Email.Trim(),
                     PasswordHash = HashPassword(model.Password),
-                    Role = model.Role,
+                    Role = model.Role.Trim().ToLower(),
                     Name = model.Email.Contains("@") ? model.Email.Split('@')[0] : model.Email
                 };
 
-                _logger.LogInformation("Creating new user with data: {UserId}, {Email}, {Role}", 
-                    user.UserId, user.Email, user.Role);
+                _logger.LogInformation("Creating new user with data: {UserId}, {Email}, {Role}, {Name}", 
+                    user.UserId, user.Email, user.Role, user.Name);
 
                 try 
                 {
@@ -122,20 +147,31 @@ namespace EduSyncAPI.Controllers
                     return StatusCode(500, new { message = "Database error while saving user", error = dbEx.Message });
                 }
 
-                var token = GenerateJwtToken(user);
+                try
+                {
+                    var token = GenerateJwtToken(user);
+                    _logger.LogInformation("JWT token generated successfully for user: {Email}", user.Email);
 
-                _logger.LogInformation("User registered successfully: {Email}", model.Email);
-
-                return Ok(new { 
-                    token = token, 
-                    id = user.UserId,
-                    email = user.Email,
-                    role = user.Role
-                });
+                    return Ok(new { 
+                        token = token, 
+                        id = user.UserId,
+                        email = user.Email,
+                        role = user.Role
+                    });
+                }
+                catch (Exception tokenEx)
+                {
+                    _logger.LogError(tokenEx, "Error generating JWT token: {Message}", tokenEx.Message);
+                    return StatusCode(500, new { message = "Error generating authentication token", error = tokenEx.Message });
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during registration for user: {Email}", model.Email);
+                _logger.LogError(ex, "Error during registration for user: {Email}", model?.Email);
+                if (ex.InnerException != null)
+                {
+                    _logger.LogError("Inner exception: {Message}", ex.InnerException.Message);
+                }
                 return StatusCode(500, new { message = "An error occurred during registration", error = ex.Message });
             }
         }
